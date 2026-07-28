@@ -8,7 +8,7 @@ import concurrent.futures
 import threading
 import signal
 import sys
-from typing import List
+from typing import List, Optional
 
 # --- ГЛОБАЛЬНЫЙ РУБИЛЬНИК (ДЛЯ CTRL+C) ---
 KILL_SWITCH = False
@@ -55,7 +55,8 @@ def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, 
-                        mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False) -> bool:
+                        mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
+                        ss: Optional[str] = None, to: Optional[str] = None) -> bool:
     if mode == "smooth":
         target_fps = 30; target_width = 720
     elif ultra:
@@ -66,20 +67,16 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     pts_factor = 1.0 / speed_factor
     vf_filter = f"setpts={pts_factor}*PTS,fps={target_fps},scale='min({target_width},iw)':-2"
     
-    # Накидываем fun-фильтры в пре-пасс
-    if nuke:
-        vf_filter += ",eq=contrast=1.5:saturation=3,unsharp=7:7:2.5"
-    if reverse:
-        vf_filter += ",reverse"
+    if nuke: vf_filter += ",eq=contrast=1.5:saturation=3,unsharp=7:7:2.5"
+    if reverse: vf_filter += ",reverse"
     
-    cmd = [
-        "ffmpeg", "-y", "-nostdin",
-        "-loglevel", "error",
-        "-i", input_path,
-        "-vf", vf_filter,
-        "-pix_fmt", "yuv420p",
-        "-an"
-    ]
+    cmd = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error"]
+    
+    # Флаги обрезки ставим ДО инпута для молниеносного поиска (Fast Seek)
+    if ss: cmd.extend(["-ss", str(ss)])
+    if to: cmd.extend(["-to", str(to)])
+    
+    cmd.extend(["-i", input_path, "-vf", vf_filter, "-pix_fmt", "yuv420p", "-an"])
 
     if use_gpu:
         cmd.extend(["-c:v", "h264_nvenc", "-preset", "p2", "-cq", "28"])
@@ -90,40 +87,34 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     return run_ffmpeg(cmd)
 
 def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 10.0, ultra: bool = False, 
-                         speed: float = 1.0, mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False):
+                         speed: float = 1.0, mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
+                         ss: Optional[str] = None, to: Optional[str] = None):
     if KILL_SWITCH: return
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     
-    # Сборка умного имени файла
     name_parts = []
-    if ultra:
-        name_parts.append("ultra")
-    if mode != "default":
-        name_parts.append(mode)
-    if nuke:
-        name_parts.append("nuke")
-    if reverse:
-        name_parts.append("rev")
-    if speed != 1.0:
-        name_parts.append(f"{speed}x")
+    if ss or to: name_parts.append("cut")
+    if ultra: name_parts.append("ultra")
+    if mode != "default": name_parts.append(mode)
+    if nuke: name_parts.append("nuke")
+    if reverse: name_parts.append("rev")
+    if speed != 1.0: name_parts.append(f"{speed}x")
         
     suffix = "_" + "_".join(name_parts) if name_parts else ""
     output_path = os.path.join(output_dir, f"{base_name}{suffix}.gif")
     
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
 
-    # Не пропускаем, если юзер запросил спецэффекты
-    has_effects = speed != 1.0 or mode != "default" or ultra or reverse or nuke
+    has_effects = speed != 1.0 or mode != "default" or ultra or reverse or nuke or ss or to
     if input_path.lower().endswith(".gif") and initial_size <= target_size_mb and not has_effects:
         tprint(f" ⏩ [{base_name}] Пропуск: Файл уже подходящего размера ({initial_size:.2f} МБ)")
         return
 
-    tprint(f"\n🎬 [{base_name}] Обработка ({initial_size:.2f} МБ) -> Лимит: {target_size_mb:.1f} МБ")
+    tprint(f"\n🎬 [{base_name}] Обработка -> Лимит: {target_size_mb:.1f} МБ")
     
     is_video = not input_path.lower().endswith(".gif")
     
-    # Для смайликов пре-пасс вырубаем (чтобы не потерять прозрачность), для остального - включаем
     if mode == "emote":
         use_prepass = False
     else:
@@ -138,7 +129,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 temp_prepass = tf.name
             
             tprint(f" 🚀 [{base_name}] Быстрый рендер прокси-файла H.264...")
-            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode, use_gpu=use_gpu, reverse=reverse, nuke=nuke):
+            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode, use_gpu=use_gpu, reverse=reverse, nuke=nuke, ss=ss, to=to):
                 actual_input = temp_prepass
             else:
                 if not KILL_SWITCH:
@@ -188,13 +179,19 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             
             tprint(f" ⚙️ [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
             
-            # Подготавливаем фильтры. Если пре-пасс был пропущен, применяем всё здесь
             fun_str = ""
             speed_str = ""
+            cmd = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error"]
+            
+            # Если пре-пасс не делали, режем и накладываем эффекты здесь
             if not use_prepass:
+                if ss: cmd.extend(["-ss", str(ss)])
+                if to: cmd.extend(["-to", str(to)])
                 if speed != 1.0: speed_str = f"setpts={1.0/speed}*PTS,"
                 if nuke: fun_str += "eq=contrast=1.5:saturation=3,unsharp=7:7:2.5,"
                 if reverse: fun_str += "reverse,"
+            
+            cmd.extend(["-i", actual_input])
             
             vf_filter = (
                 f"{speed_str}{fun_str}fps={fps},scale='min({width},iw)':-2:flags={scale_algo},"
@@ -202,13 +199,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 f"[s1][p]paletteuse=dither={dither}:alpha_threshold={alpha}"
             )
 
-            cmd = [
-                "ffmpeg", "-y", "-nostdin",
-                "-loglevel", "error",
-                "-i", actual_input,
-                "-vf", vf_filter,
-                output_path
-            ]
+            cmd.extend(["-vf", vf_filter, output_path])
 
             if not run_ffmpeg(cmd) and not KILL_SWITCH:
                 tprint(f" ❌ [{base_name}] Ошибка кодирования на шаге {idx}")
@@ -227,14 +218,12 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
     finally:
         if temp_prepass and os.path.exists(temp_prepass):
-            try:
-                os.remove(temp_prepass)
-            except:
-                pass
+            try: os.remove(temp_prepass)
+            except: pass
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🛠️ GIF FACTORY v4.6 — Универсальный многопоточный станок для GIF/видео.",
+        description="🛠️ GIF FACTORY v4.7 — Универсальный многопоточный станок для GIF/видео.",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
@@ -245,6 +234,10 @@ def main():
                         help="Метод: default (баланс), smooth (GD/геймплей), emote (микро-пиксели)")
     parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости (10.0 = в 10 раз быстрее)")
     
+    # Тримминг
+    parser.add_argument("-ss", type=str, default=None, help="✂️ Старт обрезки (напр. '00:01:23' или '83')")
+    parser.add_argument("-to", type=str, default=None, help="✂️ Конец обрезки (напр. '00:01:30' или '90')")
+
     # Мемные параметры
     parser.add_argument("-reverse", "-rv", action="store_true", help="⏪ Воспроизведение задом наперед")
     parser.add_argument("-nuke", action="store_true", help="☢️ Эффект 'Deepfry' (выжженные цвета, перешакал)")
@@ -282,11 +275,13 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print(" 🛠️  GIF FACTORY v4.6 — МЕМНАЯ КУЗНИЦА")
+    print(" 🛠️  GIF FACTORY v4.4 — МОНТАЖНАЯ КУЗНИЦА")
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
     print(f" 🕹️  Метод сжатия: {args.mode.upper()}")
+    if args.ss or args.to:
+        print(f" ✂️  Обрезка:       [{args.ss or 'СТАРТ'} -> {args.to or 'КОНЕЦ'}]")
     print(f" ⏱️  Модификатор:   {args.speed}x скорости")
     print(f" ⏪ Реверс:        {'ВКЛЮЧЕН' if args.reverse else 'ВЫКЛЮЧЕН'}")
     print(f" ☢️  Deepfry:       {'ВКЛЮЧЕН' if args.nuke else 'ВЫКЛЮЧЕН'}")
@@ -297,7 +292,7 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
         futures = [
-            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu, args.reverse, args.nuke)
+            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu, args.reverse, args.nuke, args.ss, args.to)
             for media in media_files
         ]
         while not KILL_SWITCH:
