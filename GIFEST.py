@@ -33,13 +33,11 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 def tprint(msg: str):
-    """Потокобезопасный вывод в консоль."""
     if not KILL_SWITCH:
         with print_lock:
             print(msg)
 
 def run_ffmpeg(cmd: List[str]) -> bool:
-    """Безопасный запуск FFmpeg с учетом глобального рубильника."""
     if KILL_SWITCH: return False
     try:
         p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -56,7 +54,8 @@ def run_ffmpeg(cmd: List[str]) -> bool:
 def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
-def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, mode: str = "default", use_gpu: bool = False) -> bool:
+def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, 
+                        mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False) -> bool:
     if mode == "smooth":
         target_fps = 30; target_width = 720
     elif ultra:
@@ -66,6 +65,12 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     
     pts_factor = 1.0 / speed_factor
     vf_filter = f"setpts={pts_factor}*PTS,fps={target_fps},scale='min({target_width},iw)':-2"
+    
+    # Накидываем fun-фильтры в пре-пасс
+    if nuke:
+        vf_filter += ",eq=contrast=1.5:saturation=3,unsharp=7:7:2.5"
+    if reverse:
+        vf_filter += ",reverse"
     
     cmd = [
         "ffmpeg", "-y", "-nostdin",
@@ -84,7 +89,8 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     cmd.append(temp_path)
     return run_ffmpeg(cmd)
 
-def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 10.0, ultra: bool = False, speed: float = 1.0, mode: str = "default", use_gpu: bool = False):
+def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 10.0, ultra: bool = False, 
+                         speed: float = 1.0, mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False):
     if KILL_SWITCH: return
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
@@ -95,6 +101,10 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
         name_parts.append("ultra")
     if mode != "default":
         name_parts.append(mode)
+    if nuke:
+        name_parts.append("nuke")
+    if reverse:
+        name_parts.append("rev")
     if speed != 1.0:
         name_parts.append(f"{speed}x")
         
@@ -103,21 +113,21 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
     
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
 
-    # Пропуск, если файл уже готов (и нет модификаторов, меняющих суть)
-    if input_path.lower().endswith(".gif") and initial_size <= target_size_mb and speed == 1.0 and mode == "default" and not ultra:
+    # Не пропускаем, если юзер запросил спецэффекты
+    has_effects = speed != 1.0 or mode != "default" or ultra or reverse or nuke
+    if input_path.lower().endswith(".gif") and initial_size <= target_size_mb and not has_effects:
         tprint(f" ⏩ [{base_name}] Пропуск: Файл уже подходящего размера ({initial_size:.2f} МБ)")
         return
 
     tprint(f"\n🎬 [{base_name}] Обработка ({initial_size:.2f} МБ) -> Лимит: {target_size_mb:.1f} МБ")
     
-    if initial_size > 1000.0:
-        tprint(f" ⚠️ [{base_name}] Файл огромный (>1 ГБ). {'GPU-ускорение включено 🚀' if use_gpu else 'Это займет время, процессор будет потеть. Налей чаю ☕'}")
-
     is_video = not input_path.lower().endswith(".gif")
+    
+    # Для смайликов пре-пасс вырубаем (чтобы не потерять прозрачность), для остального - включаем
     if mode == "emote":
         use_prepass = False
     else:
-        use_prepass = ultra or initial_size > 50.0 or is_video or speed != 1.0
+        use_prepass = ultra or initial_size > 50.0 or is_video or has_effects
 
     actual_input = input_path
     temp_prepass = None
@@ -128,7 +138,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 temp_prepass = tf.name
             
             tprint(f" 🚀 [{base_name}] Быстрый рендер прокси-файла H.264...")
-            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode, use_gpu=use_gpu):
+            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode, use_gpu=use_gpu, reverse=reverse, nuke=nuke):
                 actual_input = temp_prepass
             else:
                 if not KILL_SWITCH:
@@ -178,9 +188,16 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             
             tprint(f" ⚙️ [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
             
-            speed_filter = f"setpts={1.0/speed}*PTS," if not use_prepass and speed != 1.0 else ""
+            # Подготавливаем фильтры. Если пре-пасс был пропущен, применяем всё здесь
+            fun_str = ""
+            speed_str = ""
+            if not use_prepass:
+                if speed != 1.0: speed_str = f"setpts={1.0/speed}*PTS,"
+                if nuke: fun_str += "eq=contrast=1.5:saturation=3,unsharp=7:7:2.5,"
+                if reverse: fun_str += "reverse,"
+            
             vf_filter = (
-                f"{speed_filter}fps={fps},scale='min({width},iw)':-2:flags={scale_algo},"
+                f"{speed_str}{fun_str}fps={fps},scale='min({width},iw)':-2:flags={scale_algo},"
                 f"split[s0][s1];[s0]palettegen=max_colors={colors}:reserve_transparent=1[p];"
                 f"[s1][p]paletteuse=dither={dither}:alpha_threshold={alpha}"
             )
@@ -217,7 +234,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🛠️ GIF FACTORY v4.5 — Универсальный многопоточный станок для GIF/видео.",
+        description="🛠️ GIF FACTORY v4.6 — Универсальный многопоточный станок для GIF/видео.",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
@@ -226,8 +243,13 @@ def main():
     parser.add_argument("-ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
     parser.add_argument("-mode", "-m", choices=["default", "smooth", "emote"], default="default", 
                         help="Метод: default (баланс), smooth (GD/геймплей), emote (микро-пиксели)")
-    parser.add_argument("-o", "--output", default="GIFs", help="Папка выгрузки")
     parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости (10.0 = в 10 раз быстрее)")
+    
+    # Мемные параметры
+    parser.add_argument("-reverse", "-rv", action="store_true", help="⏪ Воспроизведение задом наперед")
+    parser.add_argument("-nuke", action="store_true", help="☢️ Эффект 'Deepfry' (выжженные цвета, перешакал)")
+    
+    parser.add_argument("-o", "--output", default="GIFs", help="Папка выгрузки")
     parser.add_argument("-gpu", action="store_true", help="Включить NVENC (видеокарта NVIDIA) для пре-пасса тяжелых видео")
     parser.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 2, help="Количество потоков")
 
@@ -260,13 +282,14 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print(" 🛠️  GIF FACTORY v4.5 — АВТОМАТИЧЕСКАЯ ФАБРИКА")
+    print(" 🛠️  GIF FACTORY v4.6 — МЕМНАЯ КУЗНИЦА")
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
     print(f" 🕹️  Метод сжатия: {args.mode.upper()}")
     print(f" ⏱️  Модификатор:   {args.speed}x скорости")
-    print(f" ⚡ Ultra-режим:   {'ВКЛЮЧЕН' if args.ultra else 'ВЫКЛЮЧЕН'}")
+    print(f" ⏪ Реверс:        {'ВКЛЮЧЕН' if args.reverse else 'ВЫКЛЮЧЕН'}")
+    print(f" ☢️  Deepfry:       {'ВКЛЮЧЕН' if args.nuke else 'ВЫКЛЮЧЕН'}")
     print(f" 🖥️  Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
     print(f" 🚀 Потоков:       {args.jobs}")
     print(f" 📑 Найдено файлов: {len(media_files)}")
@@ -274,7 +297,7 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
         futures = [
-            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu)
+            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu, args.reverse, args.nuke)
             for media in media_files
         ]
         while not KILL_SWITCH:
