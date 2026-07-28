@@ -22,7 +22,6 @@ def signal_handler(sig, frame):
         with print_lock:
             print("\n 🛑 [СИСТЕМА] Получен сигнал прерывания (Ctrl+C). Глушим двигатели...")
         KILL_SWITCH = True
-        # Убиваем все активные потоки FFmpeg
         with process_lock:
             for p in active_processes:
                 try:
@@ -74,10 +73,9 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
         "-i", input_path,
         "-vf", vf_filter,
         "-pix_fmt", "yuv420p",
-        "-an" # Глушим аудио
+        "-an"
     ]
 
-    # Добавляем аппаратное ускорение, если попросили
     if use_gpu:
         cmd.extend(["-c:v", "h264_nvenc", "-preset", "p2", "-cq", "28"])
     else:
@@ -90,11 +88,23 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
     if KILL_SWITCH: return
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
-    speed_suffix = f"_{speed}x" if speed != 1.0 else ""
-    output_path = os.path.join(output_dir, f"{base_name}{speed_suffix}.gif")
+    
+    # Сборка умного имени файла
+    name_parts = []
+    if ultra:
+        name_parts.append("ultra")
+    if mode != "default":
+        name_parts.append(mode)
+    if speed != 1.0:
+        name_parts.append(f"{speed}x")
+        
+    suffix = "_" + "_".join(name_parts) if name_parts else ""
+    output_path = os.path.join(output_dir, f"{base_name}{suffix}.gif")
+    
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
 
-    if input_path.lower().endswith(".gif") and initial_size <= target_size_mb and speed == 1.0:
+    # Пропуск, если файл уже готов (и нет модификаторов, меняющих суть)
+    if input_path.lower().endswith(".gif") and initial_size <= target_size_mb and speed == 1.0 and mode == "default" and not ultra:
         tprint(f" ⏩ [{base_name}] Пропуск: Файл уже подходящего размера ({initial_size:.2f} МБ)")
         return
 
@@ -199,7 +209,6 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             tprint(f" ⚠️ [{base_name}] Достигнуто дно настроек. Итоговый размер: {final_size:.2f} МБ")
 
     finally:
-        # Темп удаляется в любом случае, даже если нажат Ctrl+C
         if temp_prepass and os.path.exists(temp_prepass):
             try:
                 os.remove(temp_prepass)
@@ -208,7 +217,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🛠️ GIF FACTORY v4.4 — Универсальный многопоточный станок для GIF/видео.",
+        description="🛠️ GIF FACTORY v4.5 — Универсальный многопоточный станок для GIF/видео.",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
@@ -251,12 +260,13 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print(" 🛠️  GIF FACTORY v4.4 — ENTERPRISE EDITION")
+    print(" 🛠️  GIF FACTORY v4.5 — АВТОМАТИЧЕСКАЯ ФАБРИКА")
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
     print(f" 🕹️  Метод сжатия: {args.mode.upper()}")
     print(f" ⏱️  Модификатор:   {args.speed}x скорости")
+    print(f" ⚡ Ultra-режим:   {'ВКЛЮЧЕН' if args.ultra else 'ВЫКЛЮЧЕН'}")
     print(f" 🖥️  Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
     print(f" 🚀 Потоков:       {args.jobs}")
     print(f" 📑 Найдено файлов: {len(media_files)}")
@@ -267,7 +277,6 @@ def main():
             executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu)
             for media in media_files
         ]
-        # Бесконечный цикл ожидания с таймаутом, чтобы главный поток мог поймать Ctrl+C
         while not KILL_SWITCH:
             done, not_done = concurrent.futures.wait(futures, timeout=0.5)
             if not not_done:
