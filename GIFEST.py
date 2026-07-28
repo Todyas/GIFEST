@@ -17,7 +17,6 @@ def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, mode: str = "default") -> bool:
-    # Если режим smooth - нам нужен запас кадров, иначе препасс всё испортит
     if mode == "smooth":
         target_fps = 30
         target_width = 720
@@ -66,7 +65,13 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
         logs.append(f" ⏱️  Модификатор скорости: {speed}x")
 
     is_video = not input_path.lower().endswith(".gif")
-    use_prepass = ultra or initial_size > 50.0 or is_video or speed != 1.0
+    
+    # ВАЖНО: H.264 убивает прозрачность (альфа-канал). 
+    # Если делаем смайлик - пре-пасс вырубаем жестко, иначе фон станет черным.
+    if mode == "emote":
+        use_prepass = False
+    else:
+        use_prepass = ultra or initial_size > 50.0 or is_video or speed != 1.0
 
     actual_input = input_path
     temp_prepass = None
@@ -84,7 +89,6 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
         # Настраиваем шаги в зависимости от режима
         if mode == "smooth":
-            # Режим для игр: высокий FPS, отключенный dither (нет шума - меньше вес), меньше цветов
             steps = [
                 {"fps": 30, "width": 480, "colors": 128, "dither": "none"},
                 {"fps": 24, "width": 360, "colors": 64,  "dither": "none"},
@@ -92,8 +96,16 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 {"fps": 15, "width": 240, "colors": 32,  "dither": "none"},
                 {"fps": 12, "width": 200, "colors": 16,  "dither": "none"},
             ]
+        elif mode == "emote":
+            # Режим для Discord/Twitch эмодзи: жесткие пиксели, малый размер, прозрачность
+            steps = [
+                {"fps": 20, "width": 128, "colors": 128, "dither": "none", "scale_algo": "neighbor", "alpha": 128},
+                {"fps": 15, "width": 96,  "colors": 128, "dither": "none", "scale_algo": "neighbor", "alpha": 128},
+                {"fps": 15, "width": 64,  "colors": 64,  "dither": "none", "scale_algo": "neighbor", "alpha": 128},
+                {"fps": 12, "width": 48,  "colors": 64,  "dither": "none", "scale_algo": "neighbor", "alpha": 128},
+                {"fps": 10, "width": 32,  "colors": 32,  "dither": "none", "scale_algo": "neighbor", "alpha": 128},
+            ]
         elif ultra:
-            # Для кино: сверхнизкий FPS
             steps = [
                 {"fps": 3,   "width": 240, "colors": 128, "dither": "bayer:bayer_scale=5"},
                 {"fps": 2,   "width": 160, "colors": 96,  "dither": "bayer:bayer_scale=5"},
@@ -101,7 +113,6 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 {"fps": "1/2", "width": 128, "colors": 48,  "dither": "none"},
             ]
         else:
-            # Классика: баланс между кадрами и цветом
             steps = [
                 {"fps": 15, "width": 640, "colors": 256, "dither": "bayer:bayer_scale=5"},
                 {"fps": 12, "width": 500, "colors": 256, "dither": "bayer:bayer_scale=5"},
@@ -115,14 +126,16 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
         for idx, step in enumerate(steps, 1):
             fps, width, colors = step["fps"], step["width"], step["colors"]
             dither = step.get("dither", "none")
+            scale_algo = step.get("scale_algo", "lanczos")
+            alpha = step.get("alpha", 128)
             
             speed_filter = f"setpts={1.0/speed}*PTS," if not use_prepass and speed != 1.0 else ""
             
-            # Генерация палитры и применение dither (или его отключение)
+            # Добавлена поддержка жестких пикселей (scale_algo) и обтравки альфа-канала (alpha_threshold)
             vf_filter = (
-                f"{speed_filter}fps={fps},scale='min({width},iw)':-2:flags=lanczos,"
-                f"split[s0][s1];[s0]palettegen=max_colors={colors}[p];"
-                f"[s1][p]paletteuse=dither={dither}"
+                f"{speed_filter}fps={fps},scale='min({width},iw)':-2:flags={scale_algo},"
+                f"split[s0][s1];[s0]palettegen=max_colors={colors}:reserve_transparent=1[p];"
+                f"[s1][p]paletteuse=dither={dither}:alpha_threshold={alpha}"
             )
 
             cmd = [
@@ -142,7 +155,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             if os.path.exists(output_path):
                 new_size = os.path.getsize(output_path) / (1024 * 1024)
                 if new_size <= target_size_mb:
-                    logs.append(f" ✅ УСПЕХ (Шаг {idx}, FPS: {fps}): Ужато до {new_size:.2f} МБ -> {os.path.basename(output_path)}")
+                    logs.append(f" ✅ УСПЕХ (Шаг {idx}, FPS: {fps}, Алгоритм: {scale_algo}): Ужато до {new_size:.2f} МБ -> {os.path.basename(output_path)}")
                     success = True
                     break
         
@@ -158,14 +171,15 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🛠️ GIF FACTORY v4.1 — Универсальный многопоточный станок для GIF/видео.",
+        description="🛠️ GIF FACTORY v4.2 — Универсальный многопоточный станок для GIF/видео.",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
     parser.add_argument("path", nargs="?", default=".", help="Путь к файлу или папке")
     parser.add_argument("-compress", "-s", "--target-size", type=float, default=10.0, help="Лимит в МБ")
     parser.add_argument("-ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
-    parser.add_argument("-mode", "-m", choices=["default", "smooth"], default="default", help="Метод: default (качество цвета) или smooth (высокий FPS)")
+    parser.add_argument("-mode", "-m", choices=["default", "smooth", "emote"], default="default", 
+                        help="Метод: default (баланс), smooth (высокий FPS), emote (смайлики Discord, пиксель-арт)")
     parser.add_argument("-o", "--output", default="GIFs", help="Папка выгрузки")
     parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости")
     parser.add_argument("-spdup", action="store_true", help="Алиас для ускорения 2x")
@@ -188,7 +202,7 @@ def main():
         files = glob.glob(os.path.join(source_dir, "*.*"))
 
     out_dir = os.path.join(source_dir, args.output)
-    valid_exts = (".gif", ".mp4", ".mkv", ".avi", ".mov", ".webm")
+    valid_exts = (".gif", ".mp4", ".mkv", ".avi", ".mov", ".webm", ".webp")
     
     media_files = [
         f for f in files 
@@ -202,7 +216,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print(" 🛠️  GIF FACTORY v4.1 — АВТОМАТИЧЕСКИЙ СТАНОК (МНОГОПОТОК)")
+    print(" 🛠️  GIF FACTORY v4.2 — АВТОМАТИЧЕСКИЙ СТАНОК (МНОГОПОТОК)")
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
