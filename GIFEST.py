@@ -6,29 +6,64 @@ import argparse
 import subprocess
 import concurrent.futures
 import threading
+import signal
+import sys
 from typing import List
 
-# Блокировка для красивого вывода в консоль из разных потоков
+# --- ГЛОБАЛЬНЫЙ РУБИЛЬНИК (ДЛЯ CTRL+C) ---
+KILL_SWITCH = False
+active_processes = []
+process_lock = threading.Lock()
 print_lock = threading.Lock()
 
+def signal_handler(sig, frame):
+    global KILL_SWITCH
+    if not KILL_SWITCH:
+        with print_lock:
+            print("\n 🛑 [СИСТЕМА] Получен сигнал прерывания (Ctrl+C). Глушим двигатели...")
+        KILL_SWITCH = True
+        # Убиваем все активные потоки FFmpeg
+        with process_lock:
+            for p in active_processes:
+                try:
+                    p.terminate()
+                except:
+                    pass
+        sys.exit(1)
+
+signal.signal(signal.SIGINT, signal_handler)
+
 def tprint(msg: str):
-    """Потокобезопасный вывод в консоль, чтобы строки не слипались."""
-    with print_lock:
-        print(msg)
+    """Потокобезопасный вывод в консоль."""
+    if not KILL_SWITCH:
+        with print_lock:
+            print(msg)
+
+def run_ffmpeg(cmd: List[str]) -> bool:
+    """Безопасный запуск FFmpeg с учетом глобального рубильника."""
+    if KILL_SWITCH: return False
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with process_lock:
+            active_processes.append(p)
+        p.wait()
+        with process_lock:
+            if p in active_processes:
+                active_processes.remove(p)
+        return p.returncode == 0
+    except Exception:
+        return False
 
 def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
-def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, mode: str = "default") -> bool:
+def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, mode: str = "default", use_gpu: bool = False) -> bool:
     if mode == "smooth":
-        target_fps = 30
-        target_width = 720
+        target_fps = 30; target_width = 720
     elif ultra:
-        target_fps = 5
-        target_width = 480
+        target_fps = 5; target_width = 480
     else:
-        target_fps = 15
-        target_width = 720
+        target_fps = 15; target_width = 720
     
     pts_factor = 1.0 / speed_factor
     vf_filter = f"setpts={pts_factor}*PTS,fps={target_fps},scale='min({target_width},iw)':-2"
@@ -38,22 +73,22 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
         "-loglevel", "error",
         "-i", input_path,
         "-vf", vf_filter,
-        "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        "-preset", "veryfast",
-        "-crf", "23",
-        "-an", # Игнорируем аудио, чтобы избежать ошибок кодеков типа Opus
-        temp_path
+        "-an" # Глушим аудио
     ]
-    
-    try:
-        # capture_output=True скрывает мусорные ворнинги, stdin=DEVNULL предотвращает зависание
-        subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, capture_output=True)
-        return True
-    except subprocess.CalledProcessError:
-        return False
 
-def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 10.0, ultra: bool = False, speed: float = 1.0, mode: str = "default"):
+    # Добавляем аппаратное ускорение, если попросили
+    if use_gpu:
+        cmd.extend(["-c:v", "h264_nvenc", "-preset", "p2", "-cq", "28"])
+    else:
+        cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"])
+
+    cmd.append(temp_path)
+    return run_ffmpeg(cmd)
+
+def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 10.0, ultra: bool = False, speed: float = 1.0, mode: str = "default", use_gpu: bool = False):
+    if KILL_SWITCH: return
+
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     speed_suffix = f"_{speed}x" if speed != 1.0 else ""
     output_path = os.path.join(output_dir, f"{base_name}{speed_suffix}.gif")
@@ -64,6 +99,9 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
         return
 
     tprint(f"\n🎬 [{base_name}] Обработка ({initial_size:.2f} МБ) -> Лимит: {target_size_mb:.1f} МБ")
+    
+    if initial_size > 1000.0:
+        tprint(f" ⚠️ [{base_name}] Файл огромный (>1 ГБ). {'GPU-ускорение включено 🚀' if use_gpu else 'Это займет время, процессор будет потеть. Налей чаю ☕'}")
 
     is_video = not input_path.lower().endswith(".gif")
     if mode == "emote":
@@ -79,13 +117,13 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
                 temp_prepass = tf.name
             
-            tprint(f" 🚀 [{base_name}] Быстрый рендер H.264 (это может занять время для больших видео)...")
-            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode):
+            tprint(f" 🚀 [{base_name}] Быстрый рендер прокси-файла H.264...")
+            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode, use_gpu=use_gpu):
                 actual_input = temp_prepass
             else:
-                tprint(f" ⚠️ [{base_name}] Пре-пасс не удался, кодируем из исходника...")
+                if not KILL_SWITCH:
+                    tprint(f" ⚠️ [{base_name}] Пре-пасс не удался, пробуем напрямую из исходника...")
 
-        # Настраиваем шаги в зависимости от режима
         if mode == "smooth":
             steps = [
                 {"fps": 30, "width": 480, "colors": 128, "dither": "none"},
@@ -121,15 +159,16 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
         success = False
 
         for idx, step in enumerate(steps, 1):
+            if KILL_SWITCH: break
+            
             fps, width, colors = step["fps"], step["width"], step["colors"]
             dither = step.get("dither", "none")
             scale_algo = step.get("scale_algo", "lanczos")
             alpha = step.get("alpha", 128)
             
-            tprint(f" ⚙️ [{base_name}] Шаг {idx}: {fps} FPS, {width}px, алгоритм: {scale_algo}...")
+            tprint(f" ⚙️ [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
             
             speed_filter = f"setpts={1.0/speed}*PTS," if not use_prepass and speed != 1.0 else ""
-            
             vf_filter = (
                 f"{speed_filter}fps={fps},scale='min({width},iw)':-2:flags={scale_algo},"
                 f"split[s0][s1];[s0]palettegen=max_colors={colors}:reserve_transparent=1[p];"
@@ -144,30 +183,32 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 output_path
             ]
 
-            try:
-                subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, capture_output=True)
-            except subprocess.CalledProcessError:
+            if not run_ffmpeg(cmd) and not KILL_SWITCH:
                 tprint(f" ❌ [{base_name}] Ошибка кодирования на шаге {idx}")
                 continue
 
-            if os.path.exists(output_path):
+            if not KILL_SWITCH and os.path.exists(output_path):
                 new_size = os.path.getsize(output_path) / (1024 * 1024)
                 if new_size <= target_size_mb:
                     tprint(f" ✅ [{base_name}] УСПЕХ: Ужато до {new_size:.2f} МБ -> {os.path.basename(output_path)}")
                     success = True
                     break
         
-        if not success:
+        if not success and not KILL_SWITCH:
             final_size = os.path.getsize(output_path) / (1024 * 1024) if os.path.exists(output_path) else 0.0
             tprint(f" ⚠️ [{base_name}] Достигнуто дно настроек. Итоговый размер: {final_size:.2f} МБ")
 
     finally:
+        # Темп удаляется в любом случае, даже если нажат Ctrl+C
         if temp_prepass and os.path.exists(temp_prepass):
-            os.remove(temp_prepass)
+            try:
+                os.remove(temp_prepass)
+            except:
+                pass
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🛠️ GIF FACTORY v4.3 — Универсальный многопоточный станок для GIF/видео.",
+        description="🛠️ GIF FACTORY v4.4 — Универсальный многопоточный станок для GIF/видео.",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
@@ -175,10 +216,10 @@ def main():
     parser.add_argument("-compress", "-s", "--target-size", type=float, default=10.0, help="Лимит в МБ")
     parser.add_argument("-ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
     parser.add_argument("-mode", "-m", choices=["default", "smooth", "emote"], default="default", 
-                        help="Метод: default (баланс), smooth (высокий FPS), emote (пиксель-арт)")
+                        help="Метод: default (баланс), smooth (GD/геймплей), emote (микро-пиксели)")
     parser.add_argument("-o", "--output", default="GIFs", help="Папка выгрузки")
-    parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости")
-    parser.add_argument("-spdup", action="store_true", help="Алиас для ускорения 2x")
+    parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости (10.0 = в 10 раз быстрее)")
+    parser.add_argument("-gpu", action="store_true", help="Включить NVENC (видеокарта NVIDIA) для пре-пасса тяжелых видео")
     parser.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 2, help="Количество потоков")
 
     args = parser.parse_args()
@@ -187,9 +228,7 @@ def main():
         print(" ❌ Ошибка: FFmpeg не найден в системе. Добавь его в PATH.")
         return
 
-    final_speed = 2.0 if args.spdup else args.speed
     target_path = args.path
-    
     if os.path.isfile(target_path):
         source_dir = os.path.dirname(os.path.abspath(target_path)) or "."
         files = [os.path.abspath(target_path)]
@@ -212,26 +251,31 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print(" 🛠️  GIF FACTORY v4.3 — АВТОМАТИЧЕСКИЙ СТАНОК (NO-TQDM EDITION)")
+    print(" 🛠️  GIF FACTORY v4.4 — ENTERPRISE EDITION")
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
     print(f" 🕹️  Метод сжатия: {args.mode.upper()}")
-    print(f" ⏱️  Модификатор:   {final_speed}x скорости")
+    print(f" ⏱️  Модификатор:   {args.speed}x скорости")
+    print(f" 🖥️  Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
     print(f" 🚀 Потоков:       {args.jobs}")
     print(f" 📑 Найдено файлов: {len(media_files)}")
     print("=" * 65)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
         futures = [
-            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, final_speed, args.mode)
+            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu)
             for media in media_files
         ]
-        # Дожидаемся завершения всех задач
-        concurrent.futures.wait(futures)
+        # Бесконечный цикл ожидания с таймаутом, чтобы главный поток мог поймать Ctrl+C
+        while not KILL_SWITCH:
+            done, not_done = concurrent.futures.wait(futures, timeout=0.5)
+            if not not_done:
+                break
 
-    print("\n" + "=" * 65)
-    print(" 🎉 Вся работа успешно завершена!")
+    if not KILL_SWITCH:
+        print("\n" + "=" * 65)
+        print(" 🎉 Вся работа успешно завершена!")
 
 if __name__ == '__main__':
     main()
