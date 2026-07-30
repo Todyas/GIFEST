@@ -20,7 +20,7 @@ def signal_handler(sig, frame):
     global KILL_SWITCH
     if not KILL_SWITCH:
         with print_lock:
-            print("\n 🛑 [СИСТЕМА] Получен сигнал прерывания (Ctrl+C). Глушим двигатели...")
+            print("\n 🛑 [СИСТЕМА] Получен сигнал прерывания (Ctrl+C)")
         KILL_SWITCH = True
         with process_lock:
             for p in active_processes:
@@ -211,8 +211,9 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
             if not KILL_SWITCH and os.path.exists(output_path):
                 new_size = os.path.getsize(output_path) / (1024 * 1024)
-                if new_size <= target_size_mb:
-                    tprint(f" ✅ [{base_name}] УСПЕХ: Ужато до {new_size:.2f} МБ -> {os.path.basename(output_path)}")
+                
+                if target_size_mb <= 0.0 or new_size <= target_size_mb:
+                    tprint(f" ✅ [{base_name}] УСПЕХ: Сохранено ({new_size:.2f} МБ) -> {os.path.basename(output_path)}")
                     success = True
                     break
         
@@ -227,7 +228,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🛠️ GIF FACTORY v4.7 — Универсальный многопоточный станок для GIF/видео.",
+        description="GIF FACTORY v4.7",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
