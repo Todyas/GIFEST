@@ -62,13 +62,13 @@ ___
 
 # Гифки из [примеров](#примеры)
 
-## Sonic wave 4x
+## [Sonic wave 4x](https://youtu.be/Dfm_LegCN9Q?si=Lfc9kxVBoY1U8vU7)
 
 <p align="center">
   <img src="Examples/Sonic wave_cut_smooth_4.0x.gif" width="600" alt="Demo">
 </p>
 
-## Family guy
+## [Family guy](https://www.youtube.com/watch?v=mn-Tlb_wfjc)
 
 <p align="center">
     <img src="Examples/Family guy_smooth_20.0x.gif" width="600" alt="Demo">
@@ -93,7 +93,7 @@ ___
     <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
 </p>
 
-### Small Rumias dancing to her themes
+### [Small Rumias dancing to her themes](https://www.youtube.com/watch?v=eK3L7E4k-VA)
 `python GIFEST.py -compress 2 -m emote "Rumia dancing to her theme.mp4"`
 
 <p>
@@ -111,14 +111,12 @@ ___
     <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
 </p>
 
-## Undertale Sans bossfight
+## [Undertale Sans bossfight](https://youtu.be/Vr4IYjeplJA?si=Sqn6e7KNvY-_2dPH)
 <p align="center">
     <img src="Examples/sans_smooth_80.0x.gif" width="600" alt="">
 </p>
 
-## Rumia dancing to her theme
-
-
+## [Rumia dancing to her theme](https://www.youtube.com/watch?v=eK3L7E4k-VA)
 
 <p align="center">
     <img src="Examples/Rumia dancing to her theme_smooth.gif" width="600" alt="">
