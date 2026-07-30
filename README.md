@@ -91,17 +91,12 @@ ___
     <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
     <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
     <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
 </p>
 
 ### Small Rumias dancing to her themes
 `python GIFEST.py -compress 2 -m emote "Rumia dancing to her theme.mp4"`
 
 <p>
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
     <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
     <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
     <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
