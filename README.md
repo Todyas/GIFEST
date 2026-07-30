@@ -48,7 +48,7 @@ ___
 
 ## Примеры
 - `python GIFEST.py` - сконвертировать все видео в папке в гифки
-- `python GIFEST.py -compress 10 "Rumia dancing to her theme.mp4"` - превратить видео в [гифку]() и сжать её до 10 мб (10 мегабайт - ограничение Дискорда на размер гифок)
+- `python GIFEST.py -compress 10 "Examples/Rumia dancing to her theme.mp4"` - превратить видео в [гифку]() и сжать её до 10 мб (10 мегабайт - ограничение Дискорда на размер гифок)
 - `python GIFEST.py -speed 40 -compress 10 -ultra "Angry_birds_movie.mkv` - ускорить [Angry birds movie](#gif-factory) до 10 мб и ускорить его в 40 раз
 - `python GIFEST.py -speed 20 -compress 10 "Family_guy.mp4"` - засунуть серию [Гриффинов](#family-guy) в 10 мб
 
