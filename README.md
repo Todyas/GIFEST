@@ -4,7 +4,7 @@
 **Пример работы:** Angry birds movie ужат до 8 мегабайт и ускорен в 40 раз
 
 <p align="center">
-  <img src="AGmovie.gif" width="600" alt="Demo">
+  <img src="Examples/AGmovie.gif" width="600" alt="Demo">
 </p>
 
 ___
@@ -54,7 +54,7 @@ ___
 
 - `python GIFEST.py -compress 0.25 -m emote "cat_disco.mp4"` - получить мини гифку
     <p align="center">
-        <img src="Cat_disco_emote.gif" width="64" alt="Demo">
+        <img src="Examples/Cat_disco_emote.gif" width="64" alt="Demo">
     </p>
 - `python GIFEST.py -ss "00:00:07" -to 187 -speed 4 "sonic_wave.mp4"` - обрезать [Sonic wave](#sonic-wave-4x). Начать с 7 секунды, закончить на 3 минуты 7 секунд
 
@@ -65,13 +65,13 @@ ___
 ## Sonic wave 4x
 
 <p align="center">
-  <img src="Sonic wave_cut_smooth_4.0x.gif" width="600" alt="Demo">
+  <img src="Examples/Sonic wave_cut_smooth_4.0x.gif" width="600" alt="Demo">
 </p>
 
 ## Family guy
 
 <p align="center">
-    <img src="Family guy_smooth_20.0x.gif" width="600" alt="Demo">
+    <img src="Examples/Family guy_smooth_20.0x.gif" width="600" alt="Demo">
 </p>
 
 # Другие примеры
@@ -79,41 +79,41 @@ ___
 ## -m emote
 ### Thanos
 <p align="left">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
-    <img src="thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
+    <img src="Examples/thanos-fortnite_emote_2.0x.gif" width="64" alt="Thanos">
 </p>
 
 ### Small Rumias dancing to her themes
 `python GIFEST.py -compress 2 -m emote "Rumia dancing to her theme.mp4"`
 
 <p>
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
-    <img src="Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
+    <img src="Examples/Rumia dancing to her theme_emote.gif" width="64" alt="Small Rumia. Who is reading this, lol?">
 </p>
 
 ## Undertale Sans bossfight
 <p align="center">
-    <img src="sans_smooth_80.0x.gif" width="600" alt="">
+    <img src="Examples/sans_smooth_80.0x.gif" width="600" alt="">
 </p>
 
 ## Rumia dancing to her theme
@@ -121,5 +121,5 @@ ___
 
 
 <p align="center">
-    <img src="Rumia dancing to her theme_smooth.gif" width="600" alt="">
+    <img src="Examples/Rumia dancing to her theme_smooth.gif" width="600" alt="">
 </p>
