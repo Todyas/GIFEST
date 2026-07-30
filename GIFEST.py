@@ -86,8 +86,8 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     cmd.append(temp_path)
     return run_ffmpeg(cmd)
 
-def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 10.0, ultra: bool = False, 
-                         speed: float = 1.0, mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
+def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 0.0, ultra: bool = False, 
+                         speed: float = 1.0, mode: str = "smooth", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
                          ss: Optional[str] = None, to: Optional[str] = None):
     if KILL_SWITCH: return
 
@@ -107,11 +107,15 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
 
     has_effects = speed != 1.0 or mode != "default" or ultra or reverse or nuke or ss or to
-    if input_path.lower().endswith(".gif") and initial_size <= target_size_mb and not has_effects:
-        tprint(f" ⏩ [{base_name}] Пропуск: Файл уже подходящего размера ({initial_size:.2f} МБ)")
-        return
+        
+        # Пропускаем, если это уже GIF, нет эффектов, и размер либо в лимите, либо лимит отключен (0.0)
+    if input_path.lower().endswith(".gif") and not has_effects:
+        if target_size_mb <= 0.0 or initial_size <= target_size_mb:
+            tprint(f" ⏩ [{base_name}] Пропуск: Файл уже GIF и не требует обработки ({initial_size:.2f} МБ)")
+            return
 
-    tprint(f"\n🎬 [{base_name}] Обработка -> Лимит: {target_size_mb:.1f} МБ")
+    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита (Макс. качество)"
+    tprint(f"\n🎬 [{base_name}] Обработка -> Лимит: {limit_str}")
     
     is_video = not input_path.lower().endswith(".gif")
     
@@ -228,9 +232,9 @@ def main():
     )
 
     parser.add_argument("path", nargs="?", default=".", help="Путь к файлу или папке")
-    parser.add_argument("-compress", "-s", "--target-size", type=float, default=10.0, help="Лимит в МБ")
+    parser.add_argument("-compress", "-s", "--target-size", type=float, default=0.0, help="Лимит в МБ")
     parser.add_argument("-ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
-    parser.add_argument("-mode", "-m", choices=["default", "smooth", "emote"], default="default", 
+    parser.add_argument("-mode", "-m", choices=["default", "smooth", "emote"], default="smooth", 
                         help="Метод: default (баланс), smooth (GD/геймплей), emote (микро-пиксели)")
     parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости (10.0 = в 10 раз быстрее)")
     
@@ -275,7 +279,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print(" 🛠️  GIF FACTORY v4.4 — МОНТАЖНАЯ КУЗНИЦА")
+    print("GIF FACTORY v4.4")
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
@@ -302,7 +306,7 @@ def main():
 
     if not KILL_SWITCH:
         print("\n" + "=" * 65)
-        print(" 🎉 Вся работа успешно завершена!")
+        print("Готово!")
 
 if __name__ == '__main__':
     main()
