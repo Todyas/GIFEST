@@ -366,19 +366,17 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print("GIF FACTORY v4.4")
+    print("GIF FACTORY v5.0 - NOW WITH MEMES!")
     print("=" * 65)
-    print(f" 📂 Сканирование: {source_dir}")
-    print(f" 🎯 Целевой лимит: {args.target_size} МБ")
-    print(f" 🕹️ Метод сжатия: {args.mode.upper()}")
+    print(f" 📂   Сканирование: {source_dir}")
+    print(f" 🎯   Целевой лимит: {args.target_size} МБ")
+    print(f" 🕹️    Метод сжатия: {args.mode.upper()}")
     if args.ss or args.to:
-        print(f" ✂️  Обрезка:       [{args.ss or 'СТАРТ'} -> {args.to or 'КОНЕЦ'}]")
-    print(f" ⏱️  Модификатор:   {args.speed}x скорости")
-    print(f" ⏪ Реверс:        {'ВКЛЮЧЕН' if args.reverse else 'ВЫКЛЮЧЕН'}")
-    print(f" ☢️  Deepfry:       {'ВКЛЮЧЕН' if args.nuke else 'ВЫКЛЮЧЕН'}")
-    print(f" 🖥️  Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
-    print(f" 🚀 Потоков:       {args.jobs}")
-    print(f" 📑 Найдено файлов: {len(media_files)}")
+        print(f" ✂️   брезка: [{args.ss or 'СТАРТ'} -> {args.to or 'КОНЕЦ'}]")
+    if args.upper_text or args.bottom_text or args.text_layout == "demotivator":
+        print(f" 📝   Текст/Мемы: ВКЛЮЧЕНО (Режим: {args.text_layout})")
+    print(f" 🖥️    Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
+    print(f" 📑   Найдено файлов: {len(media_files)}")
     print("=" * 65)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
