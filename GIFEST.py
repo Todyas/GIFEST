@@ -117,6 +117,8 @@ def compress_single_file(
     if reverse: name_parts.append("rev")
     if speed != 1.0: name_parts.append(f"{speed}x")
     if text_mode != "pad": name_parts.append(text_mode)
+    if font != "Impact": name_parts.append(font)
+    if bg_color != "black": name_parts.append(f"bg-{bg_color}")
 
     suffix = "_" + "_".join(name_parts) if name_parts else ""
     output_path = os.path.join(output_dir, f"{base_name}{suffix}.gif")
