@@ -1,6 +1,7 @@
 import os
 import glob
 import shutil
+import textwrap
 import tempfile
 import argparse
 import subprocess
@@ -93,20 +94,39 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     return run_ffmpeg(cmd)
 
 
+def prepare_wrapped_text_file(text: str, font_size: float, max_width: float) -> str:
+    """Высчитывает перенос слов и сохраняет во временный UTF-8 файл"""
+    if not text: return None
+    
+    text = text.replace('\\n', '\n')
+    
+    avg_char_width = max(font_size * 0.55, 1.0)
+    usable_width = max_width * 0.88 
+    max_chars_per_line = max(int(usable_width / avg_char_width), 8)
+    
+    lines = text.split('\n')
+    wrapped_lines = [textwrap.fill(line, width=max_chars_per_line, break_long_words=True) for line in lines]
+    final_text = '\n'.join(wrapped_lines)
+    
+    tf = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False)
+    tf.write(final_text)
+    tf.close()
+    return tf.name
+
+
 def compress_single_file(
     input_path: str, output_dir: str, target_size_mb: float = 0.0, ultra: bool = False, 
     speed: float = 1.0, gif_mode: str = "smooth", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
     ss: Optional[str] = None, to: Optional[str] = None,
     upper_text: Optional[str] = None, bottom_text: Optional[str] = None,
-    text_layout: str = "pad", bg_color: str = "black", text_color: str = "white", font: str = "Impact", text_mode: str = "pad"
+    text_layout: str = "pad", bg_color: str = "black", text_color: str = "white", font: str = "Impact"
 ):
     if KILL_SWITCH: return
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     
-    # Флаги наличия эффектов
     has_text = bool(upper_text or bottom_text or text_layout == "demotivator")
-    has_effects = speed != 1.0 or gif_mode != "default" or ultra or reverse or nuke or ss or to or has_text
+    has_effects = speed != 1.0 or gif_mode != "smooth" or ultra or reverse or nuke or ss or to or has_text
     
     name_parts = []
     if ss or to: name_parts.append("cut")
@@ -116,16 +136,11 @@ def compress_single_file(
     if nuke: name_parts.append("nuke")
     if reverse: name_parts.append("rev")
     if speed != 1.0: name_parts.append(f"{speed}x")
-    if text_mode != "pad": name_parts.append(text_mode)
-    if font != "Impact": name_parts.append(font)
-    if bg_color != "black": name_parts.append(f"bg-{bg_color}")
 
     suffix = "_" + "_".join(name_parts) if name_parts else ""
     output_path = os.path.join(output_dir, f"{base_name}{suffix}.gif")
     
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
-
-    has_effects = speed != 1.0 or gif_mode != "smooth" or ultra or reverse or nuke or ss or to or upper_text or bottom_text
         
         # Пропускаем, если это уже GIF, нет эффектов, и размер либо в лимите, либо лимит отключен (0.0)
     if input_path.lower().endswith(".gif") and not has_effects:
@@ -133,18 +148,15 @@ def compress_single_file(
             tprint(f" ⏩    [{base_name}] Пропуск: Файл уже GIF и не требует обработки ({initial_size:.2f} МБ)")
             return
 
-    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита (Макс. качество)"
+    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита"
     tprint(f"\n 🎬   [{base_name}] Обработка -> Лимит: {limit_str}")
     
     is_video = not input_path.lower().endswith(".gif")
-    
-    if gif_mode == "emote":
-        use_prepass = False
-    else:
-        use_prepass = ultra or initial_size > 50.0 or is_video or has_effects
+    use_prepass = False if gif_mode == "emote" else (ultra or initial_size > 50.0 or is_video or has_effects)
 
     actual_input = input_path
     temp_prepass = None
+
 
     try:
         if use_prepass:
@@ -160,11 +172,14 @@ def compress_single_file(
 
         if gif_mode == "smooth":
             steps = [
+                {"fps": 30, "width": 540, "colors": 256, "dither": "none"},
                 {"fps": 30, "width": 480, "colors": 128, "dither": "none"},
-                {"fps": 24, "width": 360, "colors": 64,  "dither": "none"},
-                {"fps": 20, "width": 320, "colors": 64,  "dither": "none"},
-                {"fps": 15, "width": 240, "colors": 32,  "dither": "none"},
-                {"fps": 12, "width": 200, "colors": 16,  "dither": "none"},
+                {"fps": 24, "width": 480, "colors": 128, "dither": "none"},
+                {"fps": 24, "width": 380, "colors": 96,  "dither": "none"},
+                {"fps": 20, "width": 360, "colors": 64,  "dither": "none"},
+                {"fps": 18, "width": 320, "colors": 64,  "dither": "none"},
+                {"fps": 15, "width": 280, "colors": 48,  "dither": "none"},
+                {"fps": 12, "width": 240, "colors": 32,  "dither": "none"},
             ]
         elif gif_mode == "emote":
             steps = [
@@ -190,67 +205,13 @@ def compress_single_file(
             ]
 
 
-        # ГЕНЕРАЦИЯ ФИЛЬТРОВ ТЕКСТА
-        def get_text_filters():
-            if not has_text: return ""
-            
-            def escape_txt(t):
-                if not t: return ""
-                # Заменяем кавычки на типографские, эскейпим двоеточия и запятые (иначе FFmpeg сломает граф фильтров)
-                return t.replace("'", "’").replace(":", "\\:").replace(",", "\\,")
+        # Подготовка шрифта
+        if '.ttf' in font.lower() or '.otf' in font.lower() or '/' in font or '\\' in font:
+            font_path = font.replace('\\', '/').replace(':', '\\:')
+            font_param = f"fontfile='{font_path}'" 
+        else:
+            font_param = f"font='{font}'"
 
-            ut = escape_txt(upper_text)
-            bt = escape_txt(bottom_text)
-            
-            # Разбираем путь к шрифту (эскейпинг для Windows-путей типа C:\...)
-            if '.ttf' in font.lower() or '.otf' in font.lower() or '/' in font or '\\' in font:
-                font_path = font.replace('\\', '/').replace(':', '\\:')
-                font_param = f"fontfile='{font_path}'" 
-            else:
-                font_param = f"font='{font}'"
-
-            filters = []
-
-            if text_layout == "demotivator":
-                # 1. Тонкая белая рамка
-                filters.append("pad=w=iw+6:h=ih+6:x=3:y=3:color=white")
-                # 2. Черный фон демотиватора (по 10% с боков и сверху, 40% снизу)
-                filters.append("pad=w=iw*1.2:h=ih*1.5:x=iw*0.1:y=ih*0.1:color=black")
-                
-                # В демотиваторах текст всегда снизу (ut = крупно, bt = мелко)
-                if ut:
-                    filters.append(
-                        f"drawtext=text='{ut}':{font_param}:fontcolor=white:"
-                        f"fontsize=max(w*0.06\\,10):x=(w-text_w)/2:y=h*0.77"
-                    )
-                if bt:
-                    filters.append(
-                        f"drawtext=text='{bt}':{font_param}:fontcolor=white:"
-                        f"fontsize=max(w*0.04\\,8):x=(w-text_w)/2:y=h*0.88"
-                    )
-            else:
-                if text_layout == "pad":
-                    pad_top = "ih*0.2" if ut else "0"
-                    pad_bot = "ih*0.2" if bt else "0"
-                    filters.append(f"pad=w=iw:h=ih+{pad_top}+{pad_bot}:x=0:y={pad_top}:color={bg_color}")
-
-                # Текст для overlay и pad (с черной обводкой для читаемости поверх видео)
-                if ut:
-                    y_expr = "h*0.02" if text_layout == "pad" else "h*0.05"
-                    filters.append(
-                        f"drawtext=text='{ut}':{font_param}:fontcolor={text_color}:"
-                        f"fontsize=max(w*0.08\\,10):x=(w-text_w)/2:y={y_expr}:bordercolor=black:borderw=2"
-                    )
-                if bt:
-                    y_expr = "h-text_h-h*0.02" if text_layout == "pad" else "h-text_h-h*0.05"
-                    filters.append(
-                        f"drawtext=text='{bt}':{font_param}:fontcolor={text_color}:"
-                        f"fontsize=max(w*0.08\\,10):x=(w-text_w)/2:y={y_expr}:bordercolor=black:borderw=2"
-                    )
-
-            return ",".join(filters) + ","
-
-        text_filter_str = get_text_filters()
         success = False
 
         for idx, step in enumerate(steps, 1):
@@ -263,6 +224,58 @@ def compress_single_file(
             
             tprint(f" ⚙️    [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
             
+            # Динамическая обработка текста для видео
+            temp_text_files = []
+            text_filters = []
+
+            if has_text:
+                if text_layout == "demotivator":
+                    demot_w = width * 1.2
+                    fs_ut = max(demot_w * 0.055, 12)
+                    fs_bt = max(demot_w * 0.035, 10)
+
+                    ut_file = prepare_wrapped_text_file(upper_text, fs_ut, demot_w)
+                    bt_file = prepare_wrapped_text_file(bottom_text, fs_bt, demot_w)
+
+                    if ut_file: temp_text_files.append(ut_file)
+                    if bt_file: temp_text_files.append(bt_file)
+
+                    text_filters.append("pad=w=iw+6:h=ih+6:x=3:y=3:color=white")
+                    text_filters.append("pad=w=iw*1.2:h=ih*1.5:x=iw*0.1:y=ih*0.1:color=black")
+
+                    if ut_file:
+                        ff_ut = ut_file.replace('\\', '/').replace(':', '\\:')
+                        text_filters.append(f"drawtext=textfile='{ff_ut}':{font_param}:fontcolor=white:fontsize={fs_ut}:x=(w-text_w)/2:y=h*0.74")
+                    if bt_file:
+                        ff_bt = bt_file.replace('\\', '/').replace(':', '\\:')
+                        text_filters.append(f"drawtext=textfile='{ff_bt}':{font_param}:fontcolor=white:fontsize={fs_bt}:x=(w-text_w)/2:y=h*0.87")
+
+                else:
+                    fs_ut = max(width * 0.07, 12)
+                    fs_bt = max(width * 0.07, 12)
+
+                    ut_file = prepare_wrapped_text_file(upper_text, fs_ut, width)
+                    bt_file = prepare_wrapped_text_file(bottom_text, fs_bt, width)
+
+                    if ut_file: temp_text_files.append(ut_file)
+                    if bt_file: temp_text_files.append(bt_file)
+
+                    if text_layout == "pad":
+                        pad_top = "ih*0.2" if ut_file else "0"
+                        pad_bot = "ih*0.2" if bt_file else "0"
+                        text_filters.append(f"pad=w=iw:h=ih+{pad_top}+{pad_bot}:x=0:y={pad_top}:color={bg_color}")
+
+                    if ut_file:
+                        ff_ut = ut_file.replace('\\', '/').replace(':', '\\:')
+                        y_expr = "h*0.02" if text_layout == "pad" else "h*0.05"
+                        text_filters.append(f"drawtext=textfile='{ff_ut}':{font_param}:fontcolor={text_color}:fontsize={fs_ut}:x=(w-text_w)/2:y={y_expr}:bordercolor=black:borderw=2")
+                    if bt_file:
+                        ff_bt = bt_file.replace('\\', '/').replace(':', '\\:')
+                        y_expr = "h-text_h-h*0.02" if text_layout == "pad" else "h-text_h-h*0.05"
+                        text_filters.append(f"drawtext=textfile='{ff_bt}':{font_param}:fontcolor={text_color}:fontsize={fs_bt}:x=(w-text_w)/2:y={y_expr}:bordercolor=black:borderw=2")
+
+            text_filter_str = (",".join(text_filters) + ",") if text_filters else ""
+
             fun_str, speed_str = "", ""
             cmd = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error"]
             
@@ -284,8 +297,16 @@ def compress_single_file(
 
             cmd.extend(["-vf", vf_filter, output_path])
 
-            if not run_ffmpeg(cmd) and not KILL_SWITCH:
-                tprint(f" ❌ [{base_name}] Ошибка кодирования на шаге {idx}")
+            step_success = run_ffmpeg(cmd)
+
+            # Чистим временные текстовые файлы текущего шага
+            for tf in temp_text_files:
+                if os.path.exists(tf):
+                    try: os.remove(tf)
+                    except: pass
+
+            if not step_success and not KILL_SWITCH:
+                tprint(f" ❌ [{base_name}] Ошибка кодирования на шаге {idx}.")
                 continue
 
             if not KILL_SWITCH and os.path.exists(output_path):
@@ -299,7 +320,7 @@ def compress_single_file(
         if not success and not KILL_SWITCH:
             final_size = os.path.getsize(output_path) / (1024 * 1024) if os.path.exists(output_path) else 0.0
             tprint(f" ⚠️ [{base_name}] Достигнуто дно настроек. Итоговый размер: {final_size:.2f} МБ")
-
+    
     finally:
         if temp_prepass and os.path.exists(temp_prepass):
             try: os.remove(temp_prepass)
@@ -308,7 +329,7 @@ def compress_single_file(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GIF FACTORY v5.0 - NOW WITH MEMES!",
+        description="GIF FACTORY v5.2 - NOW WITH MEMES!",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
@@ -368,7 +389,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print("GIF FACTORY v5.0 - NOW WITH MEMES!")
+    print("GIF FACTORY v5.2 - NOW WITH MEMES!")
     print("=" * 65)
     print(f" 📂   Сканирование: {source_dir}")
     print(f" 🎯   Целевой лимит: {args.target_size} МБ")
