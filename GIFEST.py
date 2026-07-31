@@ -311,7 +311,7 @@ def main():
     )
 
     parser.add_argument("path", nargs="?", default=".", help="Путь к файлу или папке")
-    parser.add_argument("--compress", "-s", "--target-size", type=float, default=0.0, help="Лимит в МБ")
+    parser.add_argument("--compress", "-s", "--target-size", dest="target_size", type=float, default=0.0, help="Лимит в МБ")
     parser.add_argument("--ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
     parser.add_argument("--mode", "-m", choices=["default", "smooth", "emote"], default="smooth", 
                         help="Метод: default (баланс), smooth (GD/геймплей), emote (микро-пиксели)")
