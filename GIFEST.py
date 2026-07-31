@@ -10,11 +10,13 @@ import signal
 import sys
 from typing import List, Optional
 
+
 # --- ГЛОБАЛЬНЫЙ РУБИЛЬНИК (ДЛЯ CTRL+C) ---
 KILL_SWITCH = False
 active_processes = []
 process_lock = threading.Lock()
 print_lock = threading.Lock()
+
 
 def signal_handler(sig, frame):
     global KILL_SWITCH
@@ -32,10 +34,12 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
+
 def tprint(msg: str):
     if not KILL_SWITCH:
         with print_lock:
             print(msg)
+
 
 def run_ffmpeg(cmd: List[str]) -> bool:
     if KILL_SWITCH: return False
@@ -51,8 +55,10 @@ def run_ffmpeg(cmd: List[str]) -> bool:
     except Exception:
         return False
 
+
 def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
+
 
 def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, 
                         mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
@@ -183,11 +189,9 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             
             tprint(f" ⚙️ [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
             
-            fun_str = ""
-            speed_str = ""
+            fun_str, speed_str = "", ""
             cmd = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error"]
             
-            # Если пре-пасс не делали, режем и накладываем эффекты здесь
             if not use_prepass:
                 if ss: cmd.extend(["-ss", str(ss)])
                 if to: cmd.extend(["-to", str(to)])
@@ -225,6 +229,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
         if temp_prepass and os.path.exists(temp_prepass):
             try: os.remove(temp_prepass)
             except: pass
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -284,7 +289,7 @@ def main():
     print("=" * 65)
     print(f" 📂 Сканирование: {source_dir}")
     print(f" 🎯 Целевой лимит: {args.target_size} МБ")
-    print(f" 🕹️  Метод сжатия: {args.mode.upper()}")
+    print(f" 🕹️ Метод сжатия: {args.mode.upper()}")
     if args.ss or args.to:
         print(f" ✂️  Обрезка:       [{args.ss or 'СТАРТ'} -> {args.to or 'КОНЕЦ'}]")
     print(f" ⏱️  Модификатор:   {args.speed}x скорости")
@@ -308,6 +313,7 @@ def main():
     if not KILL_SWITCH:
         print("\n" + "=" * 65)
         print("Готово!")
+
 
 if __name__ == '__main__':
     main()
