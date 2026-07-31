@@ -10,11 +10,13 @@ import signal
 import sys
 from typing import List, Optional
 
+
 # --- ГЛОБАЛЬНЫЙ РУБИЛЬНИК (ДЛЯ CTRL+C) ---
 KILL_SWITCH = False
 active_processes = []
 process_lock = threading.Lock()
 print_lock = threading.Lock()
+
 
 def signal_handler(sig, frame):
     global KILL_SWITCH
@@ -32,10 +34,12 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
+
 def tprint(msg: str):
     if not KILL_SWITCH:
         with print_lock:
             print(msg)
+
 
 def run_ffmpeg(cmd: List[str]) -> bool:
     if KILL_SWITCH: return False
@@ -51,8 +55,10 @@ def run_ffmpeg(cmd: List[str]) -> bool:
     except Exception:
         return False
 
+
 def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
+
 
 def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, speed_factor: float = 1.0, 
                         mode: str = "default", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
@@ -72,7 +78,6 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     
     cmd = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error"]
     
-    # Флаги обрезки ставим ДО инпута для молниеносного поиска (Fast Seek)
     if ss: cmd.extend(["-ss", str(ss)])
     if to: cmd.extend(["-to", str(to)])
     
@@ -106,23 +111,16 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
     
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
 
-    has_effects = speed != 1.0 or mode != "default" or ultra or reverse or nuke or ss or to
-        
-        # Пропускаем, если это уже GIF, нет эффектов, и размер либо в лимите, либо лимит отключен (0.0)
     if input_path.lower().endswith(".gif") and not has_effects:
         if target_size_mb <= 0.0 or initial_size <= target_size_mb:
             tprint(f" ⏩ [{base_name}] Пропуск: Файл уже GIF и не требует обработки ({initial_size:.2f} МБ)")
             return
 
-    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита (Макс. качество)"
+    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита"
     tprint(f"\n🎬 [{base_name}] Обработка -> Лимит: {limit_str}")
     
     is_video = not input_path.lower().endswith(".gif")
-    
-    if mode == "emote":
-        use_prepass = False
-    else:
-        use_prepass = ultra or initial_size > 50.0 or is_video or has_effects
+    use_prepass = False if mode == "emote" else (ultra or initial_size > 50.0 or is_video or has_effects)
 
     actual_input = input_path
     temp_prepass = None
@@ -139,6 +137,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 if not KILL_SWITCH:
                     tprint(f" ⚠️ [{base_name}] Пре-пасс не удался, пробуем напрямую из исходника...")
 
+        # Настройки шагов компрессии
         if mode == "smooth":
             steps = [
                 {"fps": 30, "width": 480, "colors": 128, "dither": "none"},
@@ -206,7 +205,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             cmd.extend(["-vf", vf_filter, output_path])
 
             if not run_ffmpeg(cmd) and not KILL_SWITCH:
-                tprint(f" ❌ [{base_name}] Ошибка кодирования на шаге {idx}")
+                tprint(f" ❌ [{base_name}] Ошибка кодирования. (Если отвал на тексте — возможно не найден шрифт '{font}')")
                 continue
 
             if not KILL_SWITCH and os.path.exists(output_path):
