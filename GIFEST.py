@@ -11,7 +11,7 @@ import sys
 from typing import List, Optional
 
 
-# --- ГЛОБАЛЬНЫЙ РУБИЛЬНИК (ДЛЯ CTRL+C) ---
+# Обработка выключения утилиты
 KILL_SWITCH = False
 active_processes = []
 process_lock = threading.Lock()
@@ -22,7 +22,7 @@ def signal_handler(sig, frame):
     global KILL_SWITCH
     if not KILL_SWITCH:
         with print_lock:
-            print("\n 🛑 [СИСТЕМА] Получен сигнал прерывания (Ctrl+C)")
+            print("\n 🛑    [СИСТЕМА] Получен сигнал прерывания (Ctrl+C)")
         KILL_SWITCH = True
         with process_lock:
             for p in active_processes:
@@ -91,36 +91,54 @@ def create_fast_prepass(input_path: str, temp_path: str, ultra: bool = False, sp
     cmd.append(temp_path)
     return run_ffmpeg(cmd)
 
-def compress_single_file(input_path: str, output_dir: str, target_size_mb: float = 0.0, ultra: bool = False, 
-                         speed: float = 1.0, mode: str = "smooth", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
-                         ss: Optional[str] = None, to: Optional[str] = None):
+
+def compress_single_file(
+    input_path: str, output_dir: str, target_size_mb: float = 0.0, ultra: bool = False, 
+    speed: float = 1.0, gif_mode: str = "smooth", use_gpu: bool = False, reverse: bool = False, nuke: bool = False,
+    ss: Optional[str] = None, to: Optional[str] = None,
+    upper_text: Optional[str] = None, bottom_text: Optional[str] = None,
+    text_layout: str = "pad", bg_color: str = "black", text_color: str = "white", font: str = "Impact", text_mode: str = "pad"
+):
     if KILL_SWITCH: return
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     
+    # Флаги наличия эффектов
+    has_text = bool(upper_text or bottom_text or text_layout == "demotivator")
+    has_effects = speed != 1.0 or gif_mode != "default" or ultra or reverse or nuke or ss or to or has_text
+    
     name_parts = []
     if ss or to: name_parts.append("cut")
+    if has_text: name_parts.append("meme")
     if ultra: name_parts.append("ultra")
-    if mode != "default": name_parts.append(mode)
+    if gif_mode != "smooth": name_parts.append(gif_mode)
     if nuke: name_parts.append("nuke")
     if reverse: name_parts.append("rev")
     if speed != 1.0: name_parts.append(f"{speed}x")
-        
+    if text_mode != "pad": name_parts.append(text_mode)
+
     suffix = "_" + "_".join(name_parts) if name_parts else ""
     output_path = os.path.join(output_dir, f"{base_name}{suffix}.gif")
     
     initial_size = os.path.getsize(input_path) / (1024 * 1024)
 
+    has_effects = speed != 1.0 or gif_mode != "smooth" or ultra or reverse or nuke or ss or to or upper_text or bottom_text
+        
+        # Пропускаем, если это уже GIF, нет эффектов, и размер либо в лимите, либо лимит отключен (0.0)
     if input_path.lower().endswith(".gif") and not has_effects:
         if target_size_mb <= 0.0 or initial_size <= target_size_mb:
-            tprint(f" ⏩ [{base_name}] Пропуск: Файл уже GIF и не требует обработки ({initial_size:.2f} МБ)")
+            tprint(f" ⏩    [{base_name}] Пропуск: Файл уже GIF и не требует обработки ({initial_size:.2f} МБ)")
             return
 
-    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита"
-    tprint(f"\n🎬 [{base_name}] Обработка -> Лимит: {limit_str}")
+    limit_str = f"{target_size_mb:.1f} МБ" if target_size_mb > 0 else "Без лимита (Макс. качество)"
+    tprint(f"\n 🎬   [{base_name}] Обработка -> Лимит: {limit_str}")
     
     is_video = not input_path.lower().endswith(".gif")
-    use_prepass = False if mode == "emote" else (ultra or initial_size > 50.0 or is_video or has_effects)
+    
+    if gif_mode == "emote":
+        use_prepass = False
+    else:
+        use_prepass = ultra or initial_size > 50.0 or is_video or has_effects
 
     actual_input = input_path
     temp_prepass = None
@@ -130,15 +148,14 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
                 temp_prepass = tf.name
             
-            tprint(f" 🚀 [{base_name}] Быстрый рендер прокси-файла H.264...")
-            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=mode, use_gpu=use_gpu, reverse=reverse, nuke=nuke, ss=ss, to=to):
+            tprint(f" 🚀   [{base_name}] Быстрый рендер прокси-файла H.264...")
+            if create_fast_prepass(input_path, temp_prepass, ultra=ultra, speed_factor=speed, mode=gif_mode, use_gpu=use_gpu, reverse=reverse, nuke=nuke, ss=ss, to=to):
                 actual_input = temp_prepass
             else:
                 if not KILL_SWITCH:
                     tprint(f" ⚠️ [{base_name}] Пре-пасс не удался, пробуем напрямую из исходника...")
 
-        # Настройки шагов компрессии
-        if mode == "smooth":
+        if gif_mode == "smooth":
             steps = [
                 {"fps": 30, "width": 480, "colors": 128, "dither": "none"},
                 {"fps": 24, "width": 360, "colors": 64,  "dither": "none"},
@@ -146,7 +163,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 {"fps": 15, "width": 240, "colors": 32,  "dither": "none"},
                 {"fps": 12, "width": 200, "colors": 16,  "dither": "none"},
             ]
-        elif mode == "emote":
+        elif gif_mode == "emote":
             steps = [
                 {"fps": 20, "width": 128, "colors": 128, "dither": "none", "scale_algo": "neighbor", "alpha": 128},
                 {"fps": 15, "width": 96,  "colors": 128, "dither": "none", "scale_algo": "neighbor", "alpha": 128},
@@ -167,9 +184,70 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 {"fps": 12, "width": 500, "colors": 256, "dither": "bayer:bayer_scale=5"},
                 {"fps": 10, "width": 450, "colors": 128, "dither": "bayer:bayer_scale=4"},
                 {"fps": 8,  "width": 360, "colors": 128, "dither": "none"},
-                {"fps": 6,  "width": 320, "colors": 64,  "dither": "none"},
             ]
 
+
+        # ГЕНЕРАЦИЯ ФИЛЬТРОВ ТЕКСТА
+        def get_text_filters():
+            if not has_text: return ""
+            
+            def escape_txt(t):
+                if not t: return ""
+                # Заменяем кавычки на типографские, эскейпим двоеточия и запятые (иначе FFmpeg сломает граф фильтров)
+                return t.replace("'", "’").replace(":", "\\:").replace(",", "\\,")
+
+            ut = escape_txt(upper_text)
+            bt = escape_txt(bottom_text)
+            
+            # Разбираем путь к шрифту (эскейпинг для Windows-путей типа C:\...)
+            if '.ttf' in font.lower() or '.otf' in font.lower() or '/' in font or '\\' in font:
+                font_path = font.replace('\\', '/').replace(':', '\\:')
+                font_param = f"fontfile='{font_path}'" 
+            else:
+                font_param = f"font='{font}'"
+
+            filters = []
+
+            if text_layout == "demotivator":
+                # 1. Тонкая белая рамка
+                filters.append("pad=w=iw+6:h=ih+6:x=3:y=3:color=white")
+                # 2. Черный фон демотиватора (по 10% с боков и сверху, 40% снизу)
+                filters.append("pad=w=iw*1.2:h=ih*1.5:x=iw*0.1:y=ih*0.1:color=black")
+                
+                # В демотиваторах текст всегда снизу (ut = крупно, bt = мелко)
+                if ut:
+                    filters.append(
+                        f"drawtext=text='{ut}':{font_param}:fontcolor=white:"
+                        f"fontsize=max(w*0.06\\,10):x=(w-text_w)/2:y=h*0.77"
+                    )
+                if bt:
+                    filters.append(
+                        f"drawtext=text='{bt}':{font_param}:fontcolor=white:"
+                        f"fontsize=max(w*0.04\\,8):x=(w-text_w)/2:y=h*0.88"
+                    )
+            else:
+                if text_layout == "pad":
+                    pad_top = "ih*0.2" if ut else "0"
+                    pad_bot = "ih*0.2" if bt else "0"
+                    filters.append(f"pad=w=iw:h=ih+{pad_top}+{pad_bot}:x=0:y={pad_top}:color={bg_color}")
+
+                # Текст для overlay и pad (с черной обводкой для читаемости поверх видео)
+                if ut:
+                    y_expr = "h*0.02" if text_layout == "pad" else "h*0.05"
+                    filters.append(
+                        f"drawtext=text='{ut}':{font_param}:fontcolor={text_color}:"
+                        f"fontsize=max(w*0.08\\,10):x=(w-text_w)/2:y={y_expr}:bordercolor=black:borderw=2"
+                    )
+                if bt:
+                    y_expr = "h-text_h-h*0.02" if text_layout == "pad" else "h-text_h-h*0.05"
+                    filters.append(
+                        f"drawtext=text='{bt}':{font_param}:fontcolor={text_color}:"
+                        f"fontsize=max(w*0.08\\,10):x=(w-text_w)/2:y={y_expr}:bordercolor=black:borderw=2"
+                    )
+
+            return ",".join(filters) + ","
+
+        text_filter_str = get_text_filters()
         success = False
 
         for idx, step in enumerate(steps, 1):
@@ -180,13 +258,11 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             scale_algo = step.get("scale_algo", "lanczos")
             alpha = step.get("alpha", 128)
             
-            tprint(f" ⚙️ [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
+            tprint(f" ⚙️    [{base_name}] Шаг {idx}: {fps} FPS, {width}px, {colors} цветов...")
             
-            fun_str = ""
-            speed_str = ""
+            fun_str, speed_str = "", ""
             cmd = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error"]
             
-            # Если пре-пасс не делали, режем и накладываем эффекты здесь
             if not use_prepass:
                 if ss: cmd.extend(["-ss", str(ss)])
                 if to: cmd.extend(["-to", str(to)])
@@ -198,6 +274,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             
             vf_filter = (
                 f"{speed_str}{fun_str}fps={fps},scale='min({width},iw)':-2:flags={scale_algo},"
+                f"{text_filter_str}"
                 f"split[s0][s1];[s0]palettegen=max_colors={colors}:reserve_transparent=1[p];"
                 f"[s1][p]paletteuse=dither={dither}:alpha_threshold={alpha}"
             )
@@ -212,7 +289,7 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
                 new_size = os.path.getsize(output_path) / (1024 * 1024)
                 
                 if target_size_mb <= 0.0 or new_size <= target_size_mb:
-                    tprint(f" ✅ [{base_name}] УСПЕХ: Сохранено ({new_size:.2f} МБ) -> {os.path.basename(output_path)}")
+                    tprint(f" ✅   [{base_name}] УСПЕХ: Сохранено ({new_size:.2f} МБ) -> {os.path.basename(output_path)}")
                     success = True
                     break
         
@@ -225,29 +302,38 @@ def compress_single_file(input_path: str, output_dir: str, target_size_mb: float
             try: os.remove(temp_prepass)
             except: pass
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="GIF FACTORY v4.7",
+        description="GIF FACTORY v5.0 - NOW WITH MEMES!",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
     parser.add_argument("path", nargs="?", default=".", help="Путь к файлу или папке")
-    parser.add_argument("-compress", "-s", "--target-size", type=float, default=0.0, help="Лимит в МБ")
-    parser.add_argument("-ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
-    parser.add_argument("-mode", "-m", choices=["default", "smooth", "emote"], default="smooth", 
+    parser.add_argument("--compress", "-s", "--target-size", type=float, default=0.0, help="Лимит в МБ")
+    parser.add_argument("--ultra", "-u", action="store_true", help="Ultra-сжатие (очень длинные фильмы)")
+    parser.add_argument("--mode", "-m", choices=["default", "smooth", "emote"], default="smooth", 
                         help="Метод: default (баланс), smooth (GD/геймплей), emote (микро-пиксели)")
-    parser.add_argument("-speed", type=float, default=1.0, help="Фактор скорости (10.0 = в 10 раз быстрее)")
+    parser.add_argument("--speed", type=float, default=1.0, help="Фактор скорости (10.0 = в 10 раз быстрее)")
     
     # Тримминг
     parser.add_argument("-ss", type=str, default=None, help="✂️ Старт обрезки (напр. '00:01:23' или '83')")
     parser.add_argument("-to", type=str, default=None, help="✂️ Конец обрезки (напр. '00:01:30' или '90')")
 
-    # Мемные параметры
-    parser.add_argument("-reverse", "-rv", action="store_true", help="⏪ Воспроизведение задом наперед")
-    parser.add_argument("-nuke", action="store_true", help="☢️ Эффект 'Deepfry' (выжженные цвета, перешакал)")
+    parser.add_argument("--reverse", "-rv", action="store_true", help="⏪ Воспроизведение задом наперед")
+    parser.add_argument("--nuke", action="store_true", help="☢️ Эффект 'Deepfry'")
     
+    # Текст и демотиваторы
+    parser.add_argument("-ut", "--upper-text", type=str, default=None, help="Текст сверху (в демотиваторе — крупный заголовок)")
+    parser.add_argument("-bt", "--bottom-text", type=str, default=None, help="Текст снизу (в демотиваторе — мелкий подзаголовок)")
+    parser.add_argument("--text-layout", choices=["overlay", "pad", "demotivator"], default="pad", 
+                        help="Стиль текста: overlay (поверх), pad (расширить фон), demotivator (черная рамка)")
+    parser.add_argument("--bg-color", type=str, default="black", help="Цвет фона (для pad)")
+    parser.add_argument("--text-color", type=str, default="white", help="Цвет текста (для overlay/pad)")
+    parser.add_argument("--font", type=str, default="Impact", help="Шрифт: системное имя или полный путь к .ttf")
+
     parser.add_argument("-o", "--output", default="GIFs", help="Папка выгрузки")
-    parser.add_argument("-gpu", action="store_true", help="Включить NVENC (видеокарта NVIDIA) для пре-пасса тяжелых видео")
+    parser.add_argument("-gpu", action="store_true", help="Включить NVENC (видеокарта NVIDIA)")
     parser.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 2, help="Количество потоков")
 
     args = parser.parse_args()
@@ -279,24 +365,26 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 65)
-    print("GIF FACTORY v4.4")
+    print("GIF FACTORY v5.0 - NOW WITH MEMES!")
     print("=" * 65)
-    print(f" 📂 Сканирование: {source_dir}")
-    print(f" 🎯 Целевой лимит: {args.target_size} МБ")
-    print(f" 🕹️  Метод сжатия: {args.mode.upper()}")
+    print(f" 📂   Сканирование: {source_dir}")
+    print(f" 🎯   Целевой лимит: {args.target_size} МБ")
+    print(f" 🕹️    Метод сжатия: {args.mode.upper()}")
     if args.ss or args.to:
-        print(f" ✂️  Обрезка:       [{args.ss or 'СТАРТ'} -> {args.to or 'КОНЕЦ'}]")
-    print(f" ⏱️  Модификатор:   {args.speed}x скорости")
-    print(f" ⏪ Реверс:        {'ВКЛЮЧЕН' if args.reverse else 'ВЫКЛЮЧЕН'}")
-    print(f" ☢️  Deepfry:       {'ВКЛЮЧЕН' if args.nuke else 'ВЫКЛЮЧЕН'}")
-    print(f" 🖥️  Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
-    print(f" 🚀 Потоков:       {args.jobs}")
-    print(f" 📑 Найдено файлов: {len(media_files)}")
+        print(f" ✂️   брезка: [{args.ss or 'СТАРТ'} -> {args.to or 'КОНЕЦ'}]")
+    if args.upper_text or args.bottom_text or args.text_layout == "demotivator":
+        print(f" 📝   Текст/Мемы: ВКЛЮЧЕНО (Режим: {args.text_layout})")
+    print(f" 🖥️    Ускорение GPU: {'ВКЛЮЧЕНО (NVENC)' if args.gpu else 'ВЫКЛЮЧЕНО (CPU)'}")
+    print(f" 📑   Найдено файлов: {len(media_files)}")
     print("=" * 65)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
         futures = [
-            executor.submit(compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, args.gpu, args.reverse, args.nuke, args.ss, args.to)
+            executor.submit(
+                compress_single_file, media, out_dir, args.target_size, args.ultra, args.speed, args.mode, 
+                args.gpu, args.reverse, args.nuke, args.ss, args.to,
+                args.upper_text, args.bottom_text, args.text_layout, args.bg_color, args.text_color, args.font
+            )
             for media in media_files
         ]
         while not KILL_SWITCH:
@@ -307,6 +395,7 @@ def main():
     if not KILL_SWITCH:
         print("\n" + "=" * 65)
         print("Готово!")
+
 
 if __name__ == '__main__':
     main()
